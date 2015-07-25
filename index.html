@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html>
+<head>
+</head>
+<body>
+
+
+	<h1>Prueba de algoritmo barnes-hut</h1>
+	<canvas id="canvas-ex" width="800" height="400" style="width:800px; height: 400px; background-color:black;"></canvas>
+
+	<script type="text/javascript">
+        // Warning: All comments were taken from the paper:
+        // http://www.cs.princeton.edu/courses/archive/fall03/cs126/assignments/barnes-hut.html
+        // View: http://www.cs.princeton.edu/courses/archive/fall03/cs126/assignments/nbody.html
+
+		// quadrant
+		var Quad = function (xPos, yPos, wid, hei) {
+            this.x = xPos;
+            this.y = yPos;
+            this.width = wid;
+            this.height = hei;
+
+			// Returns true if (x, y) is in the region, and false otherwise
+			var contains = function (x, y) {
+                return x >= this.x && x <= (this.x + this.width) &&
+                        y >= this.y && y <= (this.y + this.height);
+			};
+
+			// Returns the length of a side of the square
+			var dimension = function () {
+                return { w: this.width, h: this.height };
+            };
+
+            //    N
+            // W --- E
+            //    S
+			// These four methods create and return a new Quad representing a sub-quadrant of the invoking quadrant
+			var nw = function () {
+                var mWidth = this.width / 2.0;
+                var mHeight = this.height / 2.0;
+                return new Quad(this.x, this.y, mWidth, mHeight);
+            };
+			var ne = function () {
+                var mWidth = this.width / 2.0;
+                var mHeight = this.height / 2.0;
+                return new Quad(this.x + mWidth, this.y, mWidth, mHeight);
+            };
+			var sw = function () {
+                var mWidth = this.width / 2.0;
+                var mHeight = this.height / 2.0;
+                return new Quad(this.x, this.y + mHeight, mWidth, mHeight);
+            };
+			var se = function () {
+                var mWidth = this.width / 2.0;
+                var mHeight = this.height / 2.0;
+                return new Quad(this.x + mWidth, this.y + mHeight, mWidth, mHeight);
+            };
+
+            this.contains = contains;
+            this.dimension = dimension;
+            this.nw = nw;
+            this.ne = ne;
+            this.sw = sw;
+            this.se = se;
+		};
+
+		// The Body data type now represents both individual bodies (external nodes
+		// of the Barnes-Hut tree) and groups of bodies (internal nodes). For an internal
+		// node, the data member mass represents the total mass of a group of bodies,
+		// px represents the x-coordinate of the group's center of mass, and py represents
+		// the y-coordinate
+		var Body = function (totalMass, x, y, id) {
+            this.mass = totalMass;
+            this.px = x;
+            this.py = y;
+            this.id = id;
+
+            // Net force / Fuerza neta
+            this.fx = 0;
+            this.fy = 0;
+
+            // Velocity
+            this.vx = 0;
+            this.vy = 0;
+
+			// Returns true if the body is in quadrant q
+			var inQuadrant = function (quadrant) {
+                return quadrant.contains(this.px, this.py);
+            };
+
+            this.inQuadrant = inQuadrant;
+		};
+
+        // return a new Body that represents the center-of-mass of the
+        // two bodies a and b.
+        Body.add = function (bodyA, bodyB) {
+            var mass = bodyA.mass + bodyB.mass;
+            var x = (bodyA.px * bodyA.mass + bodyB.px * bodyB.mass) / mass;
+            var y = (bodyA.py * bodyA.mass + bodyB.py * bodyB.mass) / mass;
+
+            return new Body(mass, x, y, -1);
+        };
+
+        var theta = 0.5;
+
+        var deltaT = 25000;
+        var gConstant = 6.67384e-11;//6.67 * Math.pow(10, -11);
+
+		// create a Barnes-Hut tree with no bodies, representing the given quadrant
+		var BarnesHutTree = function (quadrant) {
+
+			this.body = null; // body or aggregate body stored in this node
+			this.quad = quadrant; // square region that the tree represents
+			this.nw = null;   // tree representing northwest quadrant
+			this.ne = null;   // representing northeast quadrant
+			this.sw = null;   // tree representing southwest quadrant
+			this.se = null;   // tree representing southeast quadrant
+            var self = this;
+			// add the body b to the invoking Barnes-Hut tree
+			var insert = function (body) {
+                //console.log('@Body (actual):' + JSON.stringify(self.body) + ' - Body (nuevo):' + JSON.stringify(body));
+                // To insert a body b into the tree rooted at node x, use the following recursive procedure:
+                // 1. If node x does not contain a body, put the new body b here.
+                // 2. If node x is an internal node, update the center-of-mass and total mass of x.
+                // Recursively insert the body b in the appropriate quadrant.
+                // 3. If node x is an external node, say containing a body named c, then
+                // there are two bodies b and c in the same region.
+                // Subdivide the region further by creating four children.
+                // Then, recursively insert both b and c into the appropriate quadrant(s).
+                // Since b and c may still end up in the same quadrant, there may be several
+                // subdivisions during a single insertion. Finally, update the center-of-mass and total mass of x.
+                if (this.body === null) {
+                    this.body = body;
+                    //console.log('++ Externo:' + JSON.stringify(self.body));
+                } else if (this.nw !== null && this.ne !== null && this.sw !== null && this.se !== null) {
+                    if (body.inQuadrant(this.nw.quad)) {
+                        //console.log('++ Interno NW:');
+                        this.nw.insert(body);
+                    } else if (body.inQuadrant(this.ne.quad)) {
+                        //console.log('++ Interno NE:');
+                        this.ne.insert(body);
+                    } else if (body.inQuadrant(this.sw.quad)) {
+                        //console.log('++ Interno SW:');
+                        this.sw.insert(body);
+                    } else if (body.inQuadrant(this.se.quad)) {
+                        //console.log('++ Interno SE:');
+                        this.se.insert(body);
+                    } else {
+                        //console.log('Horror D:');
+                        throw new Error('[Internal node] Unexpected error running body insert operation');
+                    }
+                    //console.log('Sumando self.body:' + JSON.stringify(self.body) + ' + Body: ' + JSON.stringify(body));
+                    this.body = Body.add(self.body, body);
+
+                } else if (this.nw === null && this.ne === null && this.sw === null && this.se === null) {
+                    this.nw = new BarnesHutTree(this.quad.nw());
+                    this.ne = new BarnesHutTree(this.quad.ne());
+                    this.sw = new BarnesHutTree(this.quad.sw());
+                    this.se = new BarnesHutTree(this.quad.se());
+
+                    var tmpBody = self.body;
+
+                    // Reset body
+                    self.body = new Body(0, 0, 0, -1);
+
+                    //console.log('Convirtiendo y reagregando : this.body:' + JSON.stringify(self.body) + ' - Body: ' + JSON.stringify(body));
+
+                    self.insert(body);
+
+                    //console.log('Convirtiendo y reagregando : this.body:' + JSON.stringify(self.body) + ' - tmpBody: ' + JSON.stringify(tmpBody));
+
+                    self.insert(tmpBody);
+                } else {
+                    throw new Error('Unexpected error running body insert operation');
+                }
+            };
+
+			// approximate the net force acting on body from all the
+			// bodies in the invoking Barnes-Hut tree, and update b's force accordingly.
+            //
+            // To calculate the net force on a particular body, traverse the nodes of the tree, starting from the root.
+            // If the center-of-mass of an internal node is sufficiently far from the body, approximate the bodies
+            // contained in that part of the tree as a single body, whose position is the group's center of mass and
+            // whose mass is the group's o calculate the net force on a particular body, traverse the nodes of the tree,
+            // starting from the root. If the center-of-mass of an internal node is sufficiently far from the body,
+            // approximate the bodies contained in that part of the tree as a single body, whose position is the
+            // group's center of mass and whose mass is the group's. If the internal node is not sufficiently far from
+            // the body, recursively traverse each of its subtrees. To determine if a node is sufficiently far away,
+            // compute the quotient s / d, where s is the width of the region represented by the internal node, and d
+            // is the distance between the body and the node's center-of-mass. Then, compare this ratio against a
+            // threshold value θ. If s / d < θ, then the internal node is sufficiently far away.
+			var updateForce = function (body) {
+                // 1. If the current node is an external node (and it is not body b), calculate the force exerted
+                // by the current node on b, and add this amount to b's net force.
+                // 2. Otherwise, calculate the ratio s / d. If s / d < θ, treat this internal node as a single
+                // body, and calculate the force it exerts on body b, and add this amount to b's net force.
+                // 3. Otherwise, run the procedure recursively on each of the current node's children.
+                var dx, dy, fx, fy, f, r, ratio, s, d;
+                if (this.nw === null && this.ne === null && this.sw === null && this.se === null) {
+                    if (this.body !== null && body.id !== this.body.id) {
+                        dx = this.body.px - body.px;
+                        dy = this.body.py - body.py;
+                        r = Math.sqrt(dx*dx + dy*dy);
+                        f = (gConstant * this.body.mass * body.mass) / (r*r);
+                        fx = f * (dx / r);
+                        fy = f * (dy / r);
+                        body.fx += fx;
+                        body.fy += fy;
+                    } else {
+                        // Nothing to do
+                    }
+
+                } else {
+                    s = this.quad.dimension().w;
+                    dx = this.body.px - body.px;
+                    dy = this.body.py - body.py;
+                    r = Math.sqrt(dx*dx + dy*dy);
+                    d = r;
+                    ratio = s / d;
+
+                    if (ratio < theta) {
+                        f = (gConstant * this.body.mass * body.mass) / (r*r);
+                        fx = f * (dx / r);
+                        fy = f * (dy / r);
+                        body.fx += fx;
+                        body.fy += fy;
+                    } else {
+                        this.nw.updateForce(body);
+                        this.ne.updateForce(body);
+                        this.sw.updateForce(body);
+                        this.se.updateForce(body);
+                    }
+                }
+            };
+
+            this.insert = insert;
+            this.updateForce = updateForce;
+		};
+
+		// For each step of the simulation, create a new Barnes-Hut tree from scratch,
+		// and insert all of the bodies. Since the Barnes-Hut tree represents a finite
+		// region in the plane, only insert those bodies that are inside the boundaries.
+		// After inserting all of the bodies, reset the net forces acting on each body
+		// and call updateForce for each body to re-calculate them. Then, update the
+		// positions of the bodies and plot them
+		var BarnesHutAlgorithm = function () {
+
+            // To construct the Barnes-Hut tree, insert the bodies one after another.
+            var compute = function (quadrant, bodyArray) {
+
+                var i;
+                var body;
+                var ax, ay;
+
+                var tree = new BarnesHutTree(quadrant);
+
+                for (i = 0; i < bodyArray.length; i++) {
+                    body = bodyArray[i];
+                    if (body.inQuadrant(quadrant)) {
+                        //console.log('#body: ' + JSON.stringify(body));
+                        tree.insert(body);
+                    } else {
+                        console.log('Body ' + i + ' is out.')
+                    }
+                }
+
+                for (i = 0; i < bodyArray.length; i++) {
+                    body = bodyArray[i];
+                    if (body.inQuadrant(quadrant)) {
+                        tree.updateForce(body);
+                        //body.vy = 0;
+                        //body.vx = 0;
+//
+//                        ax = body.fx / body.mass;
+//                        ay = body.fy / body.mass;
+//                        body.vx = body.vx + deltaT * ax;
+//                        body.vy = body.vy + deltaT * ay;
+//                        body.px = body.px + deltaT * body.vx;
+//                        body.py = body.py + deltaT * body.vy;
+
+                    } else {
+                        console.log('Body ' + i + ' is out.')
+                    }
+                }
+
+                for (i = 0; i < bodyArray.length; i++) {
+                    body = bodyArray[i];
+                    if (body.inQuadrant(quadrant)) {
+
+                        ax = body.fx / body.mass;
+                        ay = body.fy / body.mass;
+                        body.vx = body.vx + deltaT * ax;
+                        body.vy = body.vy + deltaT * ay;
+                        body.px = body.px + deltaT * body.vx;
+                        body.py = body.py + deltaT * body.vy;
+
+                    } else {
+                        console.log('Body ' + i + ' is out.')
+                    }
+                }
+            };
+
+            this.compute = compute;
+		};
+
+
+		(function () {
+
+			var drawCircle = function (g, x, y) {
+				var radius = 10;
+
+				g.beginPath();
+				g.arc(x, y, radius, 0, 2*Math.PI, true);
+				g.closePath();
+				g.fillStyle = 'green';
+				g.fill();
+			};
+
+            /*
+
+                 sun.gif
+                 mercury.gif
+                 venus.gif
+                 earth.gif
+                 mars.gif*/
+
+            var universeRadius = 2.50e11;
+
+            // initial position
+			var xs = [ 0.000e00, 5.790e10, 1.082e11, 1.496e11, 2.279e11 ];
+			var ys = [ 0.000e00, 0.000e00, 0.000e00, 0.000e00, 0.000e00 ];
+            // initial velocity
+            var vxs = [ 0.000e00, 0.000e00, 0.000e00, 0.000e00, 0.000e00 ];
+            var vys = [ 0.000e00, 4.790e04, 3.500e04, 2.980e04, 2.410e04 ];
+            // Mass
+            var mass = [ 1.989e30, 3.302e23, 4.869e24, 5.974e24, 6.419e23 ];
+
+            var bodyArray = [];
+
+			var canvas = document.getElementById('canvas-ex');
+			var g2 = canvas.getContext("2d");
+
+			var i;
+            var body;
+
+            for (i = 0; i < xs.length-2; i++) {
+                body = new Body(mass[i], xs[i], ys[i], i+1);
+                body.vx = vxs[i];
+                body.vy = vys[i];
+                bodyArray.push(body);
+            }
+
+            var quad = new Quad(-universeRadius, -universeRadius, 2*universeRadius, 2*universeRadius);
+            var engine = new BarnesHutAlgorithm();
+            var x, y;
+            var draw = function () {
+                engine.compute(quad, bodyArray);
+                g2.clearRect(0, 0, canvas.width, canvas.height);
+                //console.log('-----');
+                for (i = 0; i < bodyArray.length; i++) {
+                    x = bodyArray[i].px + universeRadius;
+                    y = bodyArray[i].py + universeRadius;
+                    //console.log('x: ' + x + ' y: ' + y);
+
+                    x = (x * 400) / (2 * universeRadius);
+                    y = (y * 400) / (2 * universeRadius);
+
+                    drawCircle(g2, x, y);
+                }
+                window.requestAnimationFrame(draw);
+                //setTimeout(draw, 600);
+            };
+
+            draw();
+
+		}) ();
+	</script>
+</body>
+</html>
